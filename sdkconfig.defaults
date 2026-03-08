@@ -1,0 +1,8 @@
+# Custom partition table with OTA support (two 960 KB slots for 2 MB flash)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Enable bootloader rollback: if new firmware crashes before calling
+# esp_ota_mark_app_valid_cancel_rollback(), the bootloader reverts to
+# the previous good slot on next boot.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

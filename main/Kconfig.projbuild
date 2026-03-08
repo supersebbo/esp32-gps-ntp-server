@@ -1,0 +1,454 @@
+menu "GPS NTP Server Configuration"
+
+    config USE_WIFI
+        bool "Enable WiFi connectivity"
+        default n
+        help
+            Enable WiFi station mode for network access.
+            Disable when using a wired Ethernet module (e.g. ESP32-S3-ETH)
+            where the WiFi peripheral is absent or unused.
+            The NTP and SNTP-fallback features will still work over whatever
+            network interface is brought up by the application.
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        depends on USE_WIFI
+        default "myssid"
+        help
+            SSID of the WiFi network to connect to.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        depends on USE_WIFI
+        default "mypassword"
+        help
+            Password of the WiFi network. Leave empty for open networks.
+
+    config GPS_ENABLED
+        bool "Enable GPS module (NEO-M8 or compatible)"
+        default y
+        help
+            Enable the GPS UART reader, NMEA parser, and PPS interrupt.
+            When disabled the device operates purely as a stratum-2 NTP
+            server, synchronising from the upstream SNTP fallback server.
+
+    config GPS_UART_NUM
+        int "GPS UART Port Number (1 or 2)"
+        depends on GPS_ENABLED
+        default 1
+        range 1 2
+        help
+            UART port number for the NEO-M8 GPS module.
+            UART0 is reserved for the debug console.
+
+    config GPS_RX_PIN
+        int "GPS UART RX GPIO (GPS TX -> this pin)"
+        depends on GPS_ENABLED
+        default 16 if IDF_TARGET_ESP32
+        default 18
+        range 0 39 if IDF_TARGET_ESP32
+        range 0 48
+        help
+            GPIO pin receiving serial data from the GPS module TX output.
+            On original ESP32, GPIOs 34-39 are input-only.
+
+    config GPS_TX_PIN
+        int "GPS UART TX GPIO (this pin -> GPS RX)"
+        depends on GPS_ENABLED
+        default 17 if IDF_TARGET_ESP32
+        default 17
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+        help
+            GPIO pin sending serial data to the GPS module RX input.
+            Can be set to -1 if TX is not needed (receive-only).
+            On original ESP32, output-capable GPIOs are 0-33.
+
+    config GPS_BAUD_RATE
+        int "GPS Baud Rate"
+        depends on GPS_ENABLED
+        default 9600
+        help
+            NEO-M8 default baud rate is 9600.
+            Common alternatives: 38400, 57600, 115200.
+
+    config GPS_PPS_ENABLED
+        bool "Enable GPS PPS for sub-millisecond accuracy"
+        depends on GPS_ENABLED
+        default y
+        help
+            Use the GPS module's 1 pulse-per-second (PPS) output to
+            precisely align NTP timestamps to the UTC second boundary.
+            Improves accuracy from ~10ms (NMEA-only) to <1ms.
+
+    config GPS_PPS_PIN
+        int "GPS PPS GPIO Pin"
+        depends on GPS_ENABLED && GPS_PPS_ENABLED
+        default 4
+        range 0 39 if IDF_TARGET_ESP32
+        range 0 48
+        help
+            GPIO pin connected to the GPS module PPS output.
+            The NEO-M8 PPS pulse fires on the rising edge at each
+            UTC second boundary.
+
+    config GPS_GNSS_GLONASS
+        bool "Enable GLONASS constellation"
+        depends on GPS_ENABLED
+        default y
+        help
+            Send UBX-CFG-GNSS on startup to enable GLONASS alongside GPS.
+            More visible satellites improve fix quality and PPS stability.
+
+    config GPS_GNSS_GALILEO
+        bool "Enable Galileo constellation"
+        depends on GPS_ENABLED
+        default y
+        help
+            Send UBX-CFG-GNSS on startup to enable Galileo alongside GPS.
+            Requires NEO-M8 firmware >= 3.01 with Galileo support.
+
+    config GPS_GNSS_BEIDOU
+        bool "Enable BeiDou (BDS) constellation"
+        depends on GPS_ENABLED
+        default n
+        help
+            Enable BeiDou alongside GPS. The NEO-M8 supports at most 3
+            constellations simultaneously; enabling BeiDou alongside
+            GPS+GLONASS+Galileo will result in a NAK and the module keeps
+            its previous configuration.
+
+    config GPS_GNSS_SBAS
+        bool "Enable SBAS (WAAS/EGNOS/MSAS)"
+        depends on GPS_ENABLED
+        default y
+        help
+            Enable SBAS augmentation for improved GPS accuracy. SBAS does
+            not count towards the 3-constellation limit.
+
+    config USE_ETHERNET
+        bool "Enable SPI Ethernet connectivity"
+        default y
+        help
+            Enable a SPI-attached Ethernet controller (W5500, DM9051, or
+            KSZ8851SNL).  WiFi and Ethernet can be enabled simultaneously;
+            the NTP server and SNTP fallback client will use whichever
+            interface acquires an IP address first.
+
+    choice ETH_SPI_CHIP
+        prompt "SPI Ethernet chip"
+        depends on USE_ETHERNET
+        default ETH_SPI_W5500
+        help
+            Select the SPI Ethernet controller fitted to the board.
+
+        config ETH_SPI_W5500
+            bool "W5500 (Wiznet)"
+            help
+                Most common choice for ESP32-S3 ETH modules.
+                Hardware TCP/IP offload, up to 80 MHz SPI.
+
+        config ETH_SPI_DM9051
+            bool "DM9051 (DAVICOM)"
+
+        config ETH_SPI_KSZ8851SNL
+            bool "KSZ8851SNL (Microchip)"
+
+    endchoice
+
+    choice ETH_SPI_HOST_SEL
+        prompt "SPI host"
+        depends on USE_ETHERNET
+        default ETH_USE_SPI2
+
+        config ETH_USE_SPI2
+            bool "SPI2 (HSPI)"
+        config ETH_USE_SPI3
+            bool "SPI3 (VSPI)"
+
+    endchoice
+
+    config ETH_SPI_MOSI_PIN
+        int "SPI MOSI GPIO"
+        depends on USE_ETHERNET
+        default 23 if IDF_TARGET_ESP32
+        default 11
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+
+    config ETH_SPI_MISO_PIN
+        int "SPI MISO GPIO"
+        depends on USE_ETHERNET
+        default 19 if IDF_TARGET_ESP32
+        default 12
+        range 0 39 if IDF_TARGET_ESP32
+        range 0 48
+
+    config ETH_SPI_SCLK_PIN
+        int "SPI SCLK GPIO"
+        depends on USE_ETHERNET
+        default 18 if IDF_TARGET_ESP32
+        default 13
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+
+    config ETH_SPI_CS_PIN
+        int "SPI CS (chip select) GPIO"
+        depends on USE_ETHERNET
+        default 5 if IDF_TARGET_ESP32
+        default 14
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+
+    config ETH_SPI_INT_PIN
+        int "Interrupt GPIO (-1 = polling every 10 ms)"
+        depends on USE_ETHERNET
+        default 34 if IDF_TARGET_ESP32
+        default 10
+        range -1 39 if IDF_TARGET_ESP32
+        range -1 48
+        help
+            Connect the Ethernet chip INT output to this GPIO for
+            efficient interrupt-driven operation.  Set to -1 if the
+            pin is not wired; the driver will fall back to polling.
+
+    config ETH_SPI_RST_PIN
+        int "Reset GPIO (-1 = no hardware reset)"
+        depends on USE_ETHERNET
+        default 27 if IDF_TARGET_ESP32
+        default 9
+        range -1 33 if IDF_TARGET_ESP32
+        range -1 48
+        help
+            Optional hardware reset line.  Set to -1 if not connected;
+            the driver will perform a software reset instead.
+
+    config ETH_SPI_CLOCK_MHZ
+        int "SPI clock speed (MHz)"
+        depends on USE_ETHERNET
+        default 25
+        range 1 80
+        help
+            W5500 supports up to 80 MHz; 25 MHz is a safe starting
+            point for most board layouts.
+
+    config USE_STATIC_IP
+        bool "Use static IP (disable DHCP)"
+        default n
+        depends on USE_WIFI || USE_ETHERNET
+        help
+            Assign a fixed IP address to the network interface instead of
+            using DHCP.  When both WiFi and Ethernet are enabled the same
+            static address is applied to whichever interface connects first.
+
+    config STATIC_IP_ADDR
+        string "Static IPv4 address"
+        depends on USE_STATIC_IP
+        default "192.168.1.100"
+
+    config STATIC_NETMASK
+        string "Subnet mask"
+        depends on USE_STATIC_IP
+        default "255.255.255.0"
+
+    config STATIC_GATEWAY
+        string "Default gateway"
+        depends on USE_STATIC_IP
+        default "192.168.1.1"
+
+    config STATIC_DNS1
+        string "Primary DNS server"
+        depends on USE_STATIC_IP
+        default "8.8.8.8"
+
+    config STATIC_DNS2
+        string "Secondary DNS server"
+        depends on USE_STATIC_IP
+        default "8.8.4.4"
+        help
+            Leave empty to configure only the primary DNS.
+
+    config NTP_FALLBACK_SERVER
+        string "Upstream NTP fallback server"
+        default "pool.ntp.org"
+        help
+            Hostname of the SNTP server used when the local GPS fix is
+            unavailable.  The device will serve this time as stratum 2.
+            Set to an empty string to disable the fallback (the server
+            will advertise stratum 16 when GPS is unavailable).
+
+    config OLED_ENABLED
+        bool "Enable SSD1306 OLED status display"
+        default y
+        help
+            Enable a 128x32 I2C SSD1306 OLED showing GPS time, sync source,
+            lock status, and satellite count. Runs in a low-priority FreeRTOS
+            task and never interferes with GPS parsing or NTP serving.
+
+    config OLED_I2C_PORT
+        int "I2C port (0 or 1)"
+        depends on OLED_ENABLED
+        default 0
+        range 0 1
+        help
+            I2C peripheral to use. Ensure the chosen port is not already
+            claimed by another driver.
+
+    config OLED_SDA_PIN
+        int "SDA GPIO"
+        depends on OLED_ENABLED
+        default 21 if IDF_TARGET_ESP32
+        default 5
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+
+    config OLED_SCL_PIN
+        int "SCL GPIO"
+        depends on OLED_ENABLED
+        default 22 if IDF_TARGET_ESP32
+        default 6
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+
+    config OLED_I2C_ADDR
+        hex "SSD1306 I2C address"
+        depends on OLED_ENABLED
+        default 0x3C
+        range 0x3C 0x3D
+        help
+            0x3C when the SA0 pin is pulled low (most modules).
+            0x3D when SA0 is pulled high.
+
+    choice OLED_DISPLAY_SIZE
+        prompt "Display height"
+        depends on OLED_ENABLED
+        default OLED_HEIGHT_32
+        help
+            Select the physical height of your SSD1306 OLED panel.
+            128×32 (0.91 inch) uses 4 pages and a compact single-screen layout.
+            128×64 (0.96 inch) uses 8 pages and shows all status fields at once
+            with no rotating rows.
+
+        config OLED_HEIGHT_32
+            bool "128×32 (0.91 inch)"
+            help
+                Standard compact OLED.  Layout: 2× time top-left, source/ms
+                top-right, GNSS row, rotating bottom row (date/IP/NTP/uptime).
+
+        config OLED_HEIGHT_64
+            bool "128×64 (0.96 inch)"
+            help
+                Taller OLED.  Layout: 2× time top-left, source+stratum top-right,
+                then seven static 1× rows: ms+date, GNSS, IP, NTP count, uptime,
+                CPU temperature.
+
+    endchoice
+
+    config RTC_ENABLED
+        bool "Enable DS3231 RTC backup module"
+        default n
+        help
+            Enable a DS3231 real-time clock on I2C address 0x68.
+            At boot the DS3231 sets the system clock before GPS or SNTP
+            are available, allowing the NTP server to serve a plausible
+            time (stratum 12) immediately after power-on.
+            When GPS or SNTP achieves a sync the RTC is updated so it
+            stays accurate across power cycles (battery-backed).
+
+            The DS3231 can share the OLED I2C bus — just wire SDA/SCL to
+            the same pins and keep RTC_I2C_PORT and the GPIO numbers
+            identical to the OLED settings.  The driver handles the two
+            different I2C addresses (0x3C/0x3D for SSD1306, 0x68 for DS3231)
+            automatically.
+
+    config RTC_I2C_PORT
+        int "I2C port (0 or 1)"
+        depends on RTC_ENABLED
+        default 0
+        range 0 1
+        help
+            I2C peripheral to use.  Set to the same port as OLED_I2C_PORT
+            when sharing the bus (recommended default).  Set to 1 to use a
+            dedicated second I2C bus.
+
+    config RTC_SDA_PIN
+        int "SDA GPIO"
+        depends on RTC_ENABLED
+        default 21 if IDF_TARGET_ESP32
+        default 5
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+        help
+            SDA GPIO for the DS3231.  Match OLED_SDA_PIN when sharing the bus.
+            Conventional second-bus defaults: ESP32=GPIO33, ESP32-S3=GPIO15.
+
+    config RTC_SCL_PIN
+        int "SCL GPIO"
+        depends on RTC_ENABLED
+        default 22 if IDF_TARGET_ESP32
+        default 6
+        range 0 33 if IDF_TARGET_ESP32
+        range 0 48
+        help
+            SCL GPIO for the DS3231.  Match OLED_SCL_PIN when sharing the bus.
+            Conventional second-bus defaults: ESP32=GPIO32, ESP32-S3=GPIO16.
+
+    config DEV_MODE_ENABLED
+        bool "Enable developer mode (OTA update + remote log server)"
+        default n
+        depends on USE_WIFI || USE_ETHERNET
+        help
+            Enables two network services intended for development and
+            maintenance.  Disable on production devices.
+
+            OTA update server: flash new firmware wirelessly with:
+              curl -X POST http://<device-ip>:<OTA_PORT>/ota \
+                   --data-binary @build/esp32s3_ntp_server.bin
+
+            Remote log server: stream all ESP_LOG* output over TCP:
+              nc <device-ip> <LOG_SERVER_PORT>
+
+            Requires the custom OTA partition table (partitions.csv).
+            Flash the device once via USB after first enabling this option.
+
+    config OTA_PORT
+        int "OTA HTTP server port"
+        depends on DEV_MODE_ENABLED
+        default 3232
+        range 1 65535
+        help
+            TCP port the OTA update server listens on.
+            3232 is the conventional ESP OTA port.
+
+    config OTA_TOKEN
+        string "OTA authentication token (blank = no auth)"
+        depends on DEV_MODE_ENABLED
+        default ""
+        help
+            If non-empty, POST requests must include the HTTP header
+            'X-OTA-Token: <token>'.  Recommended for any network where
+            untrusted devices may be present.  Leave blank for trusted
+            local networks.
+
+    config LOG_SERVER_PORT
+        int "Remote log server port"
+        depends on DEV_MODE_ENABLED
+        default 4444
+        range 1 65535
+        help
+            TCP port the remote log server listens on.
+
+    config LOG_RING_BUFFER_SIZE
+        int "Boot log ring buffer size (bytes)"
+        depends on DEV_MODE_ENABLED
+        default 4096
+        range 512 16384
+        help
+            Static ring buffer that stores log output from boot until a
+            remote client connects. On connection the buffer is drained to
+            the client so early boot messages are not lost.
+            When full, the oldest messages are discarded to make room.
+            This memory is always allocated (static). Keep small on
+            memory-constrained builds — 4096 bytes is a safe default.
+
+endmenu

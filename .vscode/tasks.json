@@ -1,0 +1,70 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "OTA: Upload firmware",
+            "type": "shell",
+            "command": "curl -X POST http://${input:deviceIP}:3232/ota -H \"X-OTA-Token: ${input:otaToken}\" --data-binary @build/esp32s3_ntp_server.bin --progress-bar",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "OTA: Build then upload firmware",
+            "type": "shell",
+            "command": "idf.py build && curl -X POST http://${input:deviceIP}:3232/ota -H \"X-OTA-Token: ${input:otaToken}\" --data-binary @build/esp32s3_ntp_server.bin --progress-bar",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Monitor: Remote serial (nc)",
+            "type": "shell",
+            "command": "nc ${input:deviceIP} 4444",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true
+            },
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "OTA: Upload + open remote monitor",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "OTA: Upload firmware",
+                "Monitor: Remote serial (nc)"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "deviceIP",
+            "type": "promptString",
+            "description": "Device IP address",
+            "default": "192.168.1.100"
+        },
+        {
+            "id": "otaToken",
+            "type": "promptString",
+            "description": "OTA authentication token",
+            "password": true
+        }
+    ]
+}

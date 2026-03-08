@@ -1,0 +1,22 @@
+# Custom partition table for ESP32 2 MB flash with OTA support.
+#
+# Two equal OTA slots of 960 KB each.  The factory app slot is omitted so
+# both slots are available for OTA.  After the initial USB flash, all future
+# updates can be delivered wirelessly via the OTA HTTP server.
+#
+# Flash layout:
+#   0x001000  second-stage bootloader (reserved by IDF)
+#   0x008000  partition table
+#   0x009000  nvs         16 KB
+#   0x00d000  otadata      8 KB   (bookkeeping for active OTA slot)
+#   0x00f000  phy_init     4 KB
+#   0x010000  ota_0      960 KB
+#   0x100000  ota_1      960 KB
+#   0x1f0000  (end — 64 KB unused at top of 2 MB)
+#
+# Name,     Type,  SubType,  Offset,    Size
+nvs,        data,  nvs,      0x9000,    0x4000,
+otadata,    data,  ota,      0xd000,    0x2000,
+phy_init,   data,  phy,      0xf000,    0x1000,
+ota_0,      app,   ota_0,    0x10000,   0xF0000,
+ota_1,      app,   ota_1,    0x100000,  0xF0000,
