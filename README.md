@@ -82,33 +82,62 @@ The OLED (address `0x3C`) and DS3231 (address `0x68`) can share the same I2C bus
 
 ---
 
+## Getting Started
+
+### 1. Install ESP-IDF
+
+If you haven't used ESP-IDF before, follow Espressif's official setup guide for your OS:
+
+- [Windows](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/windows-setup.html)
+- [Linux / macOS](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/linux-macos-setup.html)
+
+This project requires **ESP-IDF 5.x** (tested on 5.5.x). The VS Code [ESP-IDF Extension](https://marketplace.visualstudio.com/items?itemName=espressif.esp-idf-extension) is the easiest way to get started on any platform — it handles toolchain installation and provides build/flash buttons.
+
+Alternatively, a [Dev Container](.devcontainer/) is included — if you have Docker and the VS Code [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), open the repo and click **"Reopen in Container"** to get a fully configured environment with no local installation required.
+
+### 2. Clone and Configure
+
+```bash
+git clone https://github.com/supersebbo/esp32-gps-ntp-server.git
+cd esp32-gps-ntp-server
+
+# Open the interactive configuration menu
+idf.py menuconfig
+```
+
+In menuconfig, go to **"GPS NTP Server Configuration"** and set at minimum:
+- Your WiFi credentials (if using WiFi)
+- GPIO pins to match your wiring
+- Which optional modules to enable (OLED, RTC, Ethernet)
+
+### 3. Build
+
+```bash
+idf.py build
+```
+
+### 4. Flash
+
+Connect your ESP32 via USB, then:
+
+```bash
+# Linux / macOS
+idf.py -p /dev/ttyUSB0 flash monitor
+
+# Windows
+idf.py -p COM3 flash monitor
+```
+
+Replace the port with whatever your device enumerates as. The `monitor` target opens the serial console so you can see boot output immediately.
+
+> **First flash note:** if you enable Developer Mode (OTA), the custom partition table (`partitions.csv`) must be flashed via USB at least once. Subsequent updates can use OTA.
+
+---
+
 ## Software Prerequisites
 
 - [ESP-IDF 5.x](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/) installed and activated (`idf.py` on PATH)
 - Tested with ESP-IDF **5.5.x**
-
----
-
-## Build & Flash
-
-```bash
-# Clone
-git clone https://github.com/supersebbo/esp32-gps-ntp-server.git
-cd esp32-gps-ntp-server
-
-# Configure — set your WiFi credentials, GPIO pins, enabled modules, etc.
-idf.py menuconfig
-
-# Build
-idf.py build
-
-# Flash (adjust port as needed)
-idf.py -p /dev/ttyUSB0 flash monitor
-```
-
-On Windows use `COM3` etc. in place of `/dev/ttyUSB0`.
-
-> **First flash note:** if you enable Developer Mode (OTA), the custom partition table (`partitions.csv`) must be flashed via USB at least once. Subsequent updates can use OTA.
 
 ---
 
