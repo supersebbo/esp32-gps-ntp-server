@@ -1,4 +1,7 @@
 #include "ethernet.h"
+#include "sdkconfig.h"
+
+#ifdef CONFIG_USE_ETHERNET
 
 #include <string.h>
 
@@ -13,17 +16,9 @@
 #include "driver/spi_master.h"
 #include "sdkconfig.h"
 
-/* Chip-specific MAC/PHY headers */
-#if CONFIG_ETH_SPI_W5500
-#  include "esp_eth_mac_w5500.h"
-#  include "esp_eth_phy_w5500.h"
-#elif CONFIG_ETH_SPI_DM9051
-#  include "esp_eth_mac_dm9051.h"
-#  include "esp_eth_phy_dm9051.h"
-#elif CONFIG_ETH_SPI_KSZ8851SNL
-#  include "esp_eth_mac_ksz8851.h"
-#  include "esp_eth_phy_ksz8851.h"
-#endif
+/* SPI Ethernet MAC/PHY headers (IDF v5.x unified) */
+#include "esp_eth_mac_spi.h"
+#include "esp_eth_phy.h"
 
 static const char *TAG = "ETH";
 
@@ -112,16 +107,8 @@ void ethernet_init(void)
         .clock_speed_hz = CONFIG_ETH_SPI_CLOCK_MHZ * 1000 * 1000,
         .spics_io_num   = CONFIG_ETH_SPI_CS_PIN,
         .queue_size     = 20,
-#if CONFIG_ETH_SPI_W5500
-        .command_bits   = 16,
-        .address_bits   = 8,
-#elif CONFIG_ETH_SPI_DM9051
-        .command_bits   = 1,
-        .address_bits   = 7,
-#elif CONFIG_ETH_SPI_KSZ8851SNL
-        .command_bits   = 2,
-        .address_bits   = 6,
-#endif
+        /* command_bits / address_bits omitted: IDF v5.x MAC drivers
+         * handle SPI framing internally for W5500/DM9051/KSZ8851SNL */
     };
 
     /* ---------------------------------------------------------------- */
@@ -133,27 +120,22 @@ void ethernet_init(void)
     esp_eth_mac_t *mac;
     esp_eth_phy_t *phy;
 
-#if CONFIG_ETH_SPI_W5500
-    /*
-     * W5500: reset pin lives in the chip config, not the PHY config.
-     * Set poll_period_ms > 0 when no interrupt pin is wired.
-     */
+#if CONFIG_ETH_SPI_ETHERNET_W5500
     eth_w5500_config_t chip_cfg = ETH_W5500_DEFAULT_CONFIG(ETH_SPI_HOST, &devcfg);
-    chip_cfg.int_gpio_num   = CONFIG_ETH_SPI_INT_PIN;
-    chip_cfg.rst_gpio_num   = CONFIG_ETH_SPI_RST_PIN;
-    chip_cfg.poll_period_ms = (CONFIG_ETH_SPI_INT_PIN < 0) ? 10 : 0;
-    phy_config.reset_gpio_num = -1;   /* handled inside chip_cfg */
+    chip_cfg.int_gpio_num     = CONFIG_ETH_SPI_INT_PIN;
+    chip_cfg.poll_period_ms   = (CONFIG_ETH_SPI_INT_PIN < 0) ? 10 : 0;
+    phy_config.reset_gpio_num = CONFIG_ETH_SPI_RST_PIN;
     mac = esp_eth_mac_new_w5500(&chip_cfg, &mac_config);
     phy = esp_eth_phy_new_w5500(&phy_config);
 
-#elif CONFIG_ETH_SPI_DM9051
+#elif CONFIG_ETH_SPI_ETHERNET_DM9051
     eth_dm9051_config_t chip_cfg = ETH_DM9051_DEFAULT_CONFIG(ETH_SPI_HOST, &devcfg);
     chip_cfg.int_gpio_num     = CONFIG_ETH_SPI_INT_PIN;
     phy_config.reset_gpio_num = CONFIG_ETH_SPI_RST_PIN;
     mac = esp_eth_mac_new_dm9051(&chip_cfg, &mac_config);
     phy = esp_eth_phy_new_dm9051(&phy_config);
 
-#elif CONFIG_ETH_SPI_KSZ8851SNL
+#elif CONFIG_ETH_SPI_ETHERNET_KSZ8851SNL
     eth_ksz8851snl_config_t chip_cfg = ETH_KSZ8851SNL_DEFAULT_CONFIG(ETH_SPI_HOST, &devcfg);
     chip_cfg.int_gpio_num     = CONFIG_ETH_SPI_INT_PIN;
     phy_config.reset_gpio_num = CONFIG_ETH_SPI_RST_PIN;
@@ -164,9 +146,21 @@ void ethernet_init(void)
     /* ---------------------------------------------------------------- */
     /*  Install Ethernet driver                                          */
     /* ---------------------------------------------------------------- */
+    if (mac == NULL || phy == NULL) {
+        ESP_LOGE(TAG, "MAC/PHY init failed — chip not responding or wrong SPI pins");
+        if (mac) mac->del(mac);
+        if (phy) phy->del(phy);
+        return;
+    }
+
     esp_eth_config_t eth_cfg = ETH_DEFAULT_CONFIG(mac, phy);
     esp_eth_handle_t eth_handle;
-    ESP_ERROR_CHECK(esp_eth_driver_install(&eth_cfg, &eth_handle));
+    if (esp_eth_driver_install(&eth_cfg, &eth_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "Ethernet driver install failed — NTP will continue without Ethernet");
+        mac->del(mac);
+        phy->del(phy);
+        return;
+    }
 
     /* ---------------------------------------------------------------- */
     /*  Attach to lwIP / esp_netif                                       */
@@ -186,9 +180,9 @@ void ethernet_init(void)
 
     ESP_ERROR_CHECK(esp_eth_start(eth_handle));
 
-#if CONFIG_ETH_SPI_W5500
+#if CONFIG_ETH_SPI_ETHERNET_W5500
     const char *chip_name = "W5500";
-#elif CONFIG_ETH_SPI_DM9051
+#elif CONFIG_ETH_SPI_ETHERNET_DM9051
     const char *chip_name = "DM9051";
 #else
     const char *chip_name = "KSZ8851SNL";
@@ -209,3 +203,5 @@ void ethernet_init(void)
     if (!(bits & ETH_CONNECTED_BIT))
         ESP_LOGW(TAG, "No IP yet — NTP server will start anyway");
 }
+
+#endif /* CONFIG_USE_ETHERNET */

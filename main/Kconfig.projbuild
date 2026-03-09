@@ -56,7 +56,7 @@ menu "GPS NTP Server Configuration"
         int "GPS UART TX GPIO (this pin -> GPS RX)"
         depends on GPS_ENABLED
         default 17 if IDF_TARGET_ESP32
-        default 17
+        default 16
         range 0 33 if IDF_TARGET_ESP32
         range 0 48
         help
@@ -84,7 +84,8 @@ menu "GPS NTP Server Configuration"
     config GPS_PPS_PIN
         int "GPS PPS GPIO Pin"
         depends on GPS_ENABLED && GPS_PPS_ENABLED
-        default 4
+        default 4 if IDF_TARGET_ESP32
+        default 15
         range 0 39 if IDF_TARGET_ESP32
         range 0 48
         help
@@ -144,15 +145,21 @@ menu "GPS NTP Server Configuration"
 
         config ETH_SPI_W5500
             bool "W5500 (Wiznet)"
+            select ETH_USE_SPI_ETHERNET
+            select ETH_SPI_ETHERNET_W5500
             help
                 Most common choice for ESP32-S3 ETH modules.
                 Hardware TCP/IP offload, up to 80 MHz SPI.
 
         config ETH_SPI_DM9051
             bool "DM9051 (DAVICOM)"
+            select ETH_USE_SPI_ETHERNET
+            select ETH_SPI_ETHERNET_DM9051
 
         config ETH_SPI_KSZ8851SNL
             bool "KSZ8851SNL (Microchip)"
+            select ETH_USE_SPI_ETHERNET
+            select ETH_SPI_ETHERNET_KSZ8851SNL
 
     endchoice
 
@@ -203,7 +210,7 @@ menu "GPS NTP Server Configuration"
     config ETH_SPI_INT_PIN
         int "Interrupt GPIO (-1 = polling every 10 ms)"
         depends on USE_ETHERNET
-        default 34 if IDF_TARGET_ESP32
+        default 25 if IDF_TARGET_ESP32
         default 10
         range -1 39 if IDF_TARGET_ESP32
         range -1 48
@@ -308,7 +315,7 @@ menu "GPS NTP Server Configuration"
         int "SDA GPIO"
         depends on OLED_ENABLED
         default 21 if IDF_TARGET_ESP32
-        default 5
+        default 2
         range 0 33 if IDF_TARGET_ESP32
         range 0 48
 
@@ -316,7 +323,7 @@ menu "GPS NTP Server Configuration"
         int "SCL GPIO"
         depends on OLED_ENABLED
         default 22 if IDF_TARGET_ESP32
-        default 6
+        default 1
         range 0 33 if IDF_TARGET_ESP32
         range 0 48
 
@@ -385,23 +392,21 @@ menu "GPS NTP Server Configuration"
         int "SDA GPIO"
         depends on RTC_ENABLED
         default 21 if IDF_TARGET_ESP32
-        default 5
+        default 2
         range 0 33 if IDF_TARGET_ESP32
         range 0 48
         help
             SDA GPIO for the DS3231.  Match OLED_SDA_PIN when sharing the bus.
-            Conventional second-bus defaults: ESP32=GPIO33, ESP32-S3=GPIO15.
 
     config RTC_SCL_PIN
         int "SCL GPIO"
         depends on RTC_ENABLED
         default 22 if IDF_TARGET_ESP32
-        default 6
+        default 1
         range 0 33 if IDF_TARGET_ESP32
         range 0 48
         help
             SCL GPIO for the DS3231.  Match OLED_SCL_PIN when sharing the bus.
-            Conventional second-bus defaults: ESP32=GPIO32, ESP32-S3=GPIO16.
 
     config DEV_MODE_ENABLED
         bool "Enable developer mode (OTA update + remote log server)"

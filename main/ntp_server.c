@@ -279,8 +279,10 @@ static void ntp_server_task(void *arg)
         gps_get_time(&tx_tv);
         fill_ntp_ts(&resp.tx_ts_secs, &resp.tx_ts_frac, &tx_tv);
 
-        sendto(sock, &resp, sizeof(resp), 0,
-               (struct sockaddr *)&client, client_len);
+        int sent = sendto(sock, &resp, sizeof(resp), 0,
+                          (struct sockaddr *)&client, client_len);
+        if (sent < 0)
+            ESP_LOGW(TAG, "sendto failed: errno %d", errno);
         s_req_count++;
 
         ESP_LOGD(TAG, "Served %s  stratum=%d  src=%s",

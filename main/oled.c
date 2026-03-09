@@ -369,7 +369,7 @@ static void get_ip_str(char *buf, size_t len)
 
 /*
  * Map a 2-char NMEA talker ID to a short display label (≤4 chars).
- *   GP → "GPS"    GN → "GNSS"   GL → "GLO"
+ *   GP → "GPS"    GN → "GNSS"    GL → "GLO"
  *   GA → "GAL"    GB → "BDS"    anything else → "???"
  */
 #ifdef CONFIG_GPS_ENABLED
@@ -378,14 +378,14 @@ static const char *talker_label(const char t[3])
 {
     if (t[0] == 'G') {
         switch (t[1]) {
-        case 'P': return "GPS ";
+        case 'P': return "GPS";
         case 'N': return "GNSS";
-        case 'L': return "GLO ";
-        case 'A': return "GAL ";
-        case 'B': return "BDS ";
+        case 'L': return "GLO";
+        case 'A': return "GAL";
+        case 'B': return "BDS";
         }
     }
-    return t[0] ? "??? " : "--- ";   /* "--- " = no fix received yet */
+    return t[0] ? "???" : "---";   /* "---" = no fix received yet */
 }
 #endif /* CONFIG_GPS_ENABLED */
 
@@ -506,13 +506,13 @@ static void draw_layout_64(void)
         const char *constel = talker_label(talker);
         bool pps = gps_is_pps_locked();
         fb_draw_str_1x(0, 24, constel);
-        char gval[14];
+        char gval[16];
         if (sats >= 0)
             snprintf(gval, sizeof(gval), "%s %2dsat%s",
-                     gps_ok ? "Lock" : "NoFx", sats, pps ? " P" : "");
+                     gps_ok ? "Lock" : "NoFx", sats > 99 ? 99 : sats, pps ? " PPS" : "");
         else
             snprintf(gval, sizeof(gval), "%s --sat%s",
-                     gps_ok ? "Lock" : "NoFx", pps ? " P" : "");
+                     gps_ok ? "Lock" : "NoFx", pps ? " PPS" : "");
         fb_draw_str_1x(128 - (int)strlen(gval) * 6, 24, gval);
     }
 #endif
@@ -633,14 +633,14 @@ static void oled_task(void *arg)
             const char *constel = talker_label(talker);
             bool pps = gps_is_pps_locked();
             char gnss_row[32];
+            const char *st = gps_ok ? "Lock" : "NoFx";
             if (sats >= 0)
-                snprintf(gnss_row, sizeof(gnss_row), "%s %s Sat:%2d%s",
-                         gps_ok ? "Lock " : "NoFix", constel, sats,
+                snprintf(gnss_row, sizeof(gnss_row), "%s %s %2dsat%s",
+                         st, constel, sats > 99 ? 99 : sats,
                          pps ? " PPS" : "");
             else
-                snprintf(gnss_row, sizeof(gnss_row), "%s %s Sat:--%s",
-                         gps_ok ? "Lock " : "NoFix", constel,
-                         pps ? " PPS" : "");
+                snprintf(gnss_row, sizeof(gnss_row), "%s %s --sat%s",
+                         st, constel, pps ? " PPS" : "");
             fb_draw_str_1x(0, 16, gnss_row);
         }
 #endif

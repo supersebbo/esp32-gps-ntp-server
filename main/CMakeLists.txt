@@ -18,10 +18,8 @@ set(REQUIRES_LIST
     esp_wifi
 )
 
-if(CONFIG_USE_ETHERNET)
-    list(APPEND SRCS_LIST     "ethernet.c")
-    list(APPEND REQUIRES_LIST esp_eth)
-endif()
+list(APPEND SRCS_LIST     "ethernet.c")
+list(APPEND REQUIRES_LIST esp_eth)
 
 list(APPEND SRCS_LIST "i2c_bus.c")
 list(APPEND SRCS_LIST "oled.c")

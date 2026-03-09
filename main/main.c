@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "driver/gpio.h"
 
 #include "gps.h"
 #include "ntp_server.h"
@@ -112,6 +113,7 @@ static void wifi_init_sta(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));   /* disable power-save for low-latency NTP */
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "Connecting to SSID: %s", CONFIG_WIFI_SSID);
@@ -136,6 +138,11 @@ static void wifi_init_sta(void)
 
 void app_main(void)
 {
+    /* Hold the onboard WS2812B data line low so it doesn't latch a
+     * random colour from boot noise (GPIO21 on WaveShare ESP32-S3-ETH). */
+    gpio_set_direction(21, GPIO_MODE_OUTPUT);
+    gpio_set_level(21, 0);
+
     /* Install log hook first — buffers all output until a remote client
      * connects, so boot messages are not lost.  No-op if dev mode off. */
     log_server_early_init();
