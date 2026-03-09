@@ -670,3 +670,15 @@ bool gps_is_pps_locked(void)
     return false;
 #endif
 }
+
+int64_t gps_last_fix_esp_us(void)
+{
+#ifdef CONFIG_GPS_ENABLED
+    xSemaphoreTake(s_gps.mutex, portMAX_DELAY);
+    int64_t us = s_gps.esp_us;   /* 0 until first fix; retained after fix loss */
+    xSemaphoreGive(s_gps.mutex);
+    return us;
+#else
+    return 0;
+#endif
+}

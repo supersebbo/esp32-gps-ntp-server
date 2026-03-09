@@ -277,6 +277,16 @@ menu "GPS NTP Server Configuration"
             Set to an empty string to disable the fallback (the server
             will advertise stratum 16 when GPS is unavailable).
 
+    config SNTP_UPDATE_INTERVAL
+        int "SNTP poll interval (seconds)"
+        default 300
+        range 15 3600
+        help
+            How often the SNTP client polls the upstream server.
+            Default 300 s (5 minutes).  The staleness timeout is derived
+            automatically as 3× this value, so two consecutive missed polls
+            are tolerated before the source is considered stale.
+
     config OLED_ENABLED
         bool "Enable SSD1306 OLED status display"
         default y

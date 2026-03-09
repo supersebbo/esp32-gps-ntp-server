@@ -80,3 +80,11 @@ bool gps_get_last_fix_time(struct timeval *tv_out);
  * Always returns false when CONFIG_GPS_PPS_ENABLED is not set.
  */
 bool gps_is_pps_locked(void);
+
+/**
+ * Returns the esp_timer_get_time() value recorded at the most recent GPS
+ * fix or PPS reference point, or 0 if no fix has ever been received.
+ * Retains the last value even after GPS lock is lost, so it can be used
+ * as a reference point for RTC holdover drift estimation.
+ */
+int64_t gps_last_fix_esp_us(void);

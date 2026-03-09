@@ -17,10 +17,6 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 
-#if !CONFIG_IDF_TARGET_ESP32
-#  include "driver/temperature_sensor.h"
-static temperature_sensor_handle_t s_temp_sensor = NULL;
-#endif
 
 #include "gps.h"
 #include "sntp_fallback.h"
@@ -347,7 +343,7 @@ static void ssd1306_flush(void)
 /*  y=48 ├──────────────────────┤                                       */
 /*       │ Up:  2d 03:14:15     │  uptime                 1× (6×8)     */
 /*  y=56 ├──────────────────────┤                                       */
-/*       │ CPU: 43.2C           │  chip temperature       1× (6×8)     */
+/*       │ Acc:           <1ms  │  clock accuracy         1× (6×8)     */
 /*  y=64 └──────────────────────┘                                      */
 /* ------------------------------------------------------------------ */
 
@@ -393,10 +389,59 @@ static const char *talker_label(const char t[3])
 }
 #endif /* CONFIG_GPS_ENABLED */
 
+/*
+ * format_accuracy — write a short estimated clock accuracy string into buf.
+ *
+ * Sources and estimates:
+ *   GPS + PPS  : sub-millisecond ISR-disciplined → "<1ms"
+ *   GPS NMEA   : UART latency + scheduling jitter → "~10ms"
+ *   SNTP       : network round-trip dependent     → "~50ms"
+ *   DS3231 RTC : 2 ppm drift since last sync      → "~Xms" / "~Xs"
+ *   No sync    : "????"
+ *
+ * Output is always ≤5 chars + null terminator; buf must be ≥6 bytes.
+ */
+static void format_accuracy(char *buf, size_t len)
+{
+    if (gps_is_pps_locked()) {
+        snprintf(buf, len, "<1ms");
+        return;
+    }
+    if (gps_is_synced()) {
+        snprintf(buf, len, "~10ms");
+        return;
+    }
+    if (sntp_fallback_is_synced()) {
+        snprintf(buf, len, "~50ms");
+        return;
+    }
+    if (ds3231_is_valid()) {
+        /* DS3231 drift: 2 ppm = 2 µs per second of elapsed time.
+         * Use the most recent good sync from either GPS or SNTP as reference. */
+        int64_t gps_ref  = gps_last_fix_esp_us();
+        int64_t sntp_ref = sntp_fallback_last_sync_us();
+        int64_t ref      = (gps_ref > sntp_ref) ? gps_ref : sntp_ref;
+        if (ref > 0) {
+            int64_t elapsed_s = (esp_timer_get_time() - ref) / 1000000LL;
+            int64_t drift_us  = elapsed_s * 2;   /* 2 ppm */
+            if (drift_us < 1000)
+                snprintf(buf, len, "~%dus", (int)drift_us);
+            else if (drift_us < 1000000)
+                snprintf(buf, len, "~%dms", (int)(drift_us / 1000));
+            else
+                snprintf(buf, len, "~%ds", (int)(drift_us / 1000000));
+        } else {
+            snprintf(buf, len, "~2ppm");
+        }
+        return;
+    }
+    snprintf(buf, len, "????");
+}
+
 /* Bottom row (y=24) rotates through 4 pages, each held for 5 s (50 × 100 ms).
  * Only used in the 128×32 layout. */
 #define PAGE_HOLD_CYCLES  50
-#define NUM_PAGES          4
+#define NUM_PAGES          5
 
 /* Top-right source label alternates with stratum every 2 s (20 × 100 ms).
  * Only used in the 128×32 layout. */
@@ -416,90 +461,100 @@ static void draw_layout_64(void)
 
     struct tm t;
     gmtime_r(&tv.tv_sec, &t);
-    int ms = (int)(tv.tv_usec / 1000) % 1000;
 
-    /* y=0..15: HH:MM:SS at 2× (x=0..95) */
+    /* y=0..15: HH:MM:SS at 2× — shifted right 4px to centre the top area
+     * (time 96px + source to x=120 = 120px total; (128-120)/2 = 4px margin) */
     char timebuf[9];
     snprintf(timebuf, sizeof(timebuf), "%02d:%02d:%02d",
              t.tm_hour, t.tm_min, t.tm_sec);
-    fb_draw_str_2x(0, 0, timebuf);
+    fb_draw_str_2x(4, 0, timebuf);
 
-    /* y=0: source label (x=96) */
-    fb_draw_str_1x(96, 0,
+    /* y=0: source label */
+    fb_draw_str_1x(106, 0,
                    gps_ok ? "GPS" : sntp_ok ? "NTP" : rtc_ok ? "RTC" : "---");
 
-    /* y=8: milliseconds (x=96) — sits directly alongside the 2× time */
-    char msbuf[5];
+    /* y=8: milliseconds */
+    char msbuf[6];
+    int ms = (int)(tv.tv_usec / 1000) % 1000;
     snprintf(msbuf, sizeof(msbuf), ".%03d", ms);
-    fb_draw_str_1x(96, 8, msbuf);
+    fb_draw_str_1x(100, 8, msbuf);
 
-    /* y=16: stratum + date + UTC */
-    int stratum = gps_ok ? 1 : sntp_ok ? 2 : rtc_ok ? 12 : 16;
-    char row16[22];
-    snprintf(row16, sizeof(row16), "S:%-2d %04d-%02d-%02d UTC",
-             stratum, t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
-    fb_draw_str_1x(0, 16, row16);
+    /* y=16: "S:X" label left, "YYYY-MM-DD" value right */
+    {
+        int stratum = gps_ok ? 1 : sntp_ok ? 2 : rtc_ok ? 12 : 16;
+        char lbl[5];
+        snprintf(lbl, sizeof(lbl), "S:%-2d", stratum);
+        fb_draw_str_1x(0, 16, lbl);
+        char val[36];
+        snprintf(val, sizeof(val), "%04d-%02d-%02d UTC",
+                 t.tm_year + 1900, t.tm_mon + 1, t.tm_mday);
+        fb_draw_str_1x(128 - (int)strlen(val) * 6, 16, val);
+    }
 
-    /* y=24: GNSS status */
+    /* y=24: "GPS" label left, fix status + sats right */
 #ifndef CONFIG_GPS_ENABLED
-    fb_draw_str_1x(0, 24, "NO GPS MODULE");
+    fb_draw_str_1x(0, 24, "GPS");
+    fb_draw_str_1x(128 - 8 * 6, 24, "disabled");
 #else
     if (!gps_hw_ok()) {
-        fb_draw_str_1x(0, 24, "GPS MODULE ERROR");
+        fb_draw_str_1x(0, 24, "GPS");
+        fb_draw_str_1x(128 - 5 * 6, 24, "ERROR");
     } else {
         int  sats = gps_get_sat_count();
         char talker[3];
         gps_get_fix_talker(talker);
         const char *constel = talker_label(talker);
         bool pps = gps_is_pps_locked();
-        char gnss_row[22];
+        fb_draw_str_1x(0, 24, constel);
+        char gval[14];
         if (sats >= 0)
-            snprintf(gnss_row, sizeof(gnss_row), "%s %s Sat:%2d%s",
-                     gps_ok ? "Lock " : "NoFix", constel, sats,
-                     pps ? " PPS" : "");
+            snprintf(gval, sizeof(gval), "%s %2dsat%s",
+                     gps_ok ? "Lock" : "NoFx", sats, pps ? " P" : "");
         else
-            snprintf(gnss_row, sizeof(gnss_row), "%s %s Sat:--%s",
-                     gps_ok ? "Lock " : "NoFix", constel,
-                     pps ? " PPS" : "");
-        fb_draw_str_1x(0, 24, gnss_row);
+            snprintf(gval, sizeof(gval), "%s --sat%s",
+                     gps_ok ? "Lock" : "NoFx", pps ? " P" : "");
+        fb_draw_str_1x(128 - (int)strlen(gval) * 6, 24, gval);
     }
 #endif
 
-    /* y=32: IP address */
-    char ipbuf[16];
-    get_ip_str(ipbuf, sizeof(ipbuf));
-    char row32[22];
-    snprintf(row32, sizeof(row32), "IP:%-15s", ipbuf);
-    fb_draw_str_1x(0, 32, row32);
-
-    /* y=40: NTP request count */
-    char row40[22];
-    snprintf(row40, sizeof(row40), "NTP:%9lu req",
-             (unsigned long)ntp_get_request_count());
-    fb_draw_str_1x(0, 40, row40);
-
-    /* y=48: uptime */
-    int64_t up_us = esp_timer_get_time();
-    int up_s = (int)(up_us / 1000000LL);
-    char row48[22];
-    snprintf(row48, sizeof(row48), "Up:%3dd %02d:%02d:%02d",
-             up_s / 86400,
-             (up_s % 86400) / 3600,
-             (up_s % 3600) / 60,
-             up_s % 60);
-    fb_draw_str_1x(0, 48, row48);
-
-    /* y=56: CPU chip temperature (ESP32-S3 only; blank on original ESP32) */
-#if !CONFIG_IDF_TARGET_ESP32
-    if (s_temp_sensor) {
-        float temp_c = 0.0f;
-        if (temperature_sensor_get_celsius(s_temp_sensor, &temp_c) == ESP_OK) {
-            char row56[18];
-            snprintf(row56, sizeof(row56), "CPU: %.1fC", (double)temp_c);
-            fb_draw_str_1x(0, 56, row56);
-        }
+    /* y=32: "IP:" label left, address right */
+    {
+        char ipbuf[16];
+        get_ip_str(ipbuf, sizeof(ipbuf));
+        fb_draw_str_1x(0, 32, "IP:");
+        fb_draw_str_1x(128 - (int)strlen(ipbuf) * 6, 32, ipbuf);
     }
-#endif
+
+    /* y=40: "NTP:" label left, request count right */
+    {
+        char nval[16];
+        snprintf(nval, sizeof(nval), "%lu req",
+                 (unsigned long)ntp_get_request_count());
+        fb_draw_str_1x(0, 40, "NTP:");
+        fb_draw_str_1x(128 - (int)strlen(nval) * 6, 40, nval);
+    }
+
+    /* y=48: "Up:" label left, elapsed time right */
+    {
+        int64_t up_us = esp_timer_get_time();
+        int up_s = (int)(up_us / 1000000LL);
+        char uval[24];
+        snprintf(uval, sizeof(uval), "%dd %02d:%02d:%02d",
+                 up_s / 86400,
+                 (up_s % 86400) / 3600,
+                 (up_s % 3600) / 60,
+                 up_s % 60);
+        fb_draw_str_1x(0, 48, "Up:");
+        fb_draw_str_1x(128 - (int)strlen(uval) * 6, 48, uval);
+    }
+
+    /* y=56: "Acc:" label left, estimated clock accuracy right */
+    {
+        char accbuf[8];
+        format_accuracy(accbuf, sizeof(accbuf));
+        fb_draw_str_1x(0, 56, "Acc:");
+        fb_draw_str_1x(128 - (int)strlen(accbuf) * 6, 56, accbuf);
+    }
 }
 #endif /* CONFIG_OLED_HEIGHT_64 */
 
@@ -535,7 +590,6 @@ static void oled_task(void *arg)
 
         struct tm t;
         gmtime_r(&tv.tv_sec, &t);
-        int ms = (int)(tv.tv_usec / 1000) % 1000;  /* clamp 0-999 */
 
         /* Top-left: HH:MM:SS at 2× scale */
         char timebuf[9];
@@ -543,8 +597,7 @@ static void oled_task(void *arg)
                  t.tm_hour, t.tm_min, t.tm_sec);
         fb_draw_str_2x(0, 0, timebuf);
 
-        /* Top-right: source label / stratum (y=0, alternating) + ms (y=8).
-         * Both fields are 4 chars wide, drawn at x=102, to fit "S:16". */
+        /* Top-right: source label / stratum (y=0, alternating) */
         int stratum = gps_ok ? 1 : sntp_ok ? 2 : rtc_ok ? 12 : 16;
         char src_label[5];
         if (src_show_stratum)
@@ -559,7 +612,9 @@ static void oled_task(void *arg)
             src_show_stratum = !src_show_stratum;
         }
 
+        /* y=8: milliseconds */
         char msbuf[8];
+        int ms = (int)(tv.tv_usec / 1000) % 1000;
         snprintf(msbuf, sizeof(msbuf), ".%03d", ms);
         fb_draw_str_1x(96, 8, msbuf);
 
@@ -618,6 +673,12 @@ static void oled_task(void *arg)
                      (up_s % 86400) / 3600,
                      (up_s % 3600) / 60,
                      up_s % 60);
+            break;
+        }
+        case 4: {
+            char accbuf[8];
+            format_accuracy(accbuf, sizeof(accbuf));
+            snprintf(row, sizeof(row), "Acc: %s", accbuf);
             break;
         }
         default:
@@ -684,18 +745,6 @@ void oled_init(void)
              FB_H,
              CONFIG_OLED_I2C_PORT, CONFIG_OLED_SDA_PIN,
              CONFIG_OLED_SCL_PIN,  CONFIG_OLED_I2C_ADDR);
-
-    /* Temperature sensor — not available on original ESP32 */
-#if !CONFIG_IDF_TARGET_ESP32
-    temperature_sensor_config_t ts_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
-    if (temperature_sensor_install(&ts_cfg, &s_temp_sensor) == ESP_OK &&
-        temperature_sensor_enable(s_temp_sensor) == ESP_OK) {
-        ESP_LOGI(TAG, "CPU temperature sensor enabled");
-    } else {
-        ESP_LOGW(TAG, "CPU temperature sensor unavailable");
-        s_temp_sensor = NULL;
-    }
-#endif
 
     xTaskCreate(oled_task, "oled", 3072, NULL, 2, NULL);
 #endif /* CONFIG_OLED_ENABLED */

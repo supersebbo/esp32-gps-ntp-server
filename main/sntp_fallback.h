@@ -25,3 +25,10 @@ bool sntp_fallback_is_synced(void);
  * Returns 0 if SNTP has not yet resolved / synced.
  */
 uint32_t sntp_fallback_ref_id(void);
+
+/**
+ * Returns esp_timer_get_time() value recorded at the last successful
+ * SNTP sync, or 0 if SNTP has never synced.
+ * Used to estimate RTC holdover drift when GPS and SNTP are both unavailable.
+ */
+int64_t sntp_fallback_last_sync_us(void);
