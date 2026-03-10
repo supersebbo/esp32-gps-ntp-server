@@ -231,7 +231,7 @@ static int ubx_configure_gnss(void)  /* returns 1=ACK, 0=NAK, -1=timeout */
 /*  UBX-CFG-PRT — set UART1 baud rate (8N1, UBX+NMEA in and out)      */
 /* ------------------------------------------------------------------ */
 
-static void ubx_set_uart_baud(uint32_t baud)
+static void __attribute__((unused)) ubx_set_uart_baud(uint32_t baud)
 {
     uint8_t frame[28];
     frame[0]  = 0xB5; frame[1]  = 0x62;  /* UBX sync chars           */
@@ -258,7 +258,7 @@ static void ubx_set_uart_baud(uint32_t baud)
 /*  UBX-CFG-CFG — save current configuration to BBR and flash         */
 /* ------------------------------------------------------------------ */
 
-static void ubx_save_config(void)
+static void __attribute__((unused)) ubx_save_config(void)
 {
     uint8_t frame[21];
     frame[0]  = 0xB5; frame[1]  = 0x62;  /* sync                     */
@@ -293,6 +293,11 @@ static void ubx_save_config(void)
 
 static bool ubx_query_leapsec(int8_t *leapS_out, bool *valid_out)
 {
+    /* Flush any pending NMEA data so the UBX response arrives into a
+     * clean buffer — without this, a full RX buffer can drop the 24-byte
+     * UBX frame among the continuous NMEA stream (~800 bytes/s at 9600). */
+    uart_flush_input(GPS_UART_NUM);
+
     /* Poll request: zero-payload NAV-TIMEGPS */
     uint8_t poll[8] = { 0xB5, 0x62, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00 };
     ubx_cksum(&poll[2], 4, &poll[6], &poll[7]);
@@ -719,7 +724,24 @@ static void process_nmea(const char *sentence)
                                  (long long)(18LL + s_leapsec_correction));
                     }
                     return;
+                } else {
+                    ESP_LOGI(TAG, "GPS time sanity OK: GPS=%lld sys=%lld diff=%llds "
+                                  "— accepting (UTC model unconfirmed but time agrees with SNTP)",
+                                  (long long)unix_sec, (long long)sys_tv.tv_sec,
+                                  (long long)diff);
                 }
+            } else {
+                /* System clock not yet set (no SNTP/RTC sync) and the GPS
+                 * UTC model is unconfirmed.  Accepting now risks serving time
+                 * that is off by (18 - stale_leapS) seconds on cold start.
+                 * Hold until either the system clock is set (enabling sanity
+                 * check) or the module confirms leapSValid via UBX. */
+                static uint32_t s_nosys_rejects = 0;
+                if (++s_nosys_rejects == 1 || s_nosys_rejects % 30 == 0)
+                    ESP_LOGW(TAG, "GPS time held: UTC model unconfirmed, system clock not "
+                                  "yet set (no SNTP/RTC) — waiting for network sync (hold #%u)",
+                                  s_nosys_rejects);
+                return;
             }
         }
         s_fix_sanity_rejects = 0;
@@ -879,13 +901,13 @@ static void gps_task(void *arg)
                     } else if (ls != s_ls_value) {
                         ESP_LOGW(TAG, "leapS changed: %d → %d", s_ls_value, ls);
                     } else {
-                        ESP_LOGD(TAG, "leapS=%d leapSValid=YES", ls);
+                        ESP_LOGI(TAG, "leapS=%d leapSValid=YES (UTC model confirmed)", ls);
                     }
                     s_ls_valid     = lv;
                     s_ls_utc_valid = lv;   /* allow sanity-check bypass once confirmed */
                     s_ls_value     = ls;
                 } else {
-                    ESP_LOGD(TAG, "UBX-NAV-TIMEGPS poll: no response (TX line connected?)");
+                    ESP_LOGW(TAG, "UBX-NAV-TIMEGPS poll: no response (GPS TX line connected?)");
                 }
             }
         }

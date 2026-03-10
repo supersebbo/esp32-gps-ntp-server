@@ -19,6 +19,7 @@
 /* SPI Ethernet MAC/PHY headers (IDF v5.x unified) */
 #include "esp_eth_mac_spi.h"
 #include "esp_eth_phy.h"
+#include "esp_mac.h"
 
 static const char *TAG = "ETH";
 
@@ -161,6 +162,18 @@ void ethernet_init(void)
         phy->del(phy);
         return;
     }
+
+    /* Set MAC address from the ESP32 chip's built-in unique ID.
+     * The W5500 has no OTP MAC of its own; without this it defaults to
+     * 00:00:00:00:00:00 which most DHCP servers silently reject. */
+    uint8_t mac_addr[6];
+    esp_efuse_mac_get_default(mac_addr);
+    mac_addr[0] |= 0x02;   /* set locally-administered bit */
+    mac_addr[0] &= 0xFE;   /* clear multicast bit */
+    esp_eth_ioctl(eth_handle, ETH_CMD_S_MAC_ADDR, mac_addr);
+    ESP_LOGI(TAG, "MAC: %02x:%02x:%02x:%02x:%02x:%02x",
+             mac_addr[0], mac_addr[1], mac_addr[2],
+             mac_addr[3], mac_addr[4], mac_addr[5]);
 
     /* ---------------------------------------------------------------- */
     /*  Attach to lwIP / esp_netif                                       */
